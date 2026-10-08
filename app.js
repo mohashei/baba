@@ -260,7 +260,7 @@ const S = {
   settings: { babies: [], units: loadUnits() },
   entries: new Map(), growth: new Map(), timers: new Map(),
   loadedFrom: Infinity, loading: null, rangeRetryAt: 0, unsub: [], babySync: [], pending: {},
-  tab: 'track', track: ls.get('track', 'nurse'), range: 7, metric: 'wt',
+  tab: 'track', track: ls.get('track', 'bottle'), range: 7, metric: 'wt',
   babyId: ls.get('baby'),
 };
 function defaultUnits() {
@@ -693,11 +693,11 @@ function tick() {
 
 // ---------- Track ----------
 //
-// One tracker per activity, like Nara: a tab each for nursing, bottle, solids and sleep, each with
+// One tracker per activity, like Nara: a tab each for bottle, sleep, solids and nursing, each with
 // its own controls and its own day-by-day history.
 
-const KINDS = ['nurse', 'bottle', 'solids', 'sleep'];
-const trackKind = () => (KINDS.includes(S.track) ? S.track : 'nurse');
+const KINDS = ['bottle', 'sleep', 'solids', 'nurse'];
+const trackKind = () => (KINDS.includes(S.track) ? S.track : 'bottle');
 const goTrack = (k) => { S.track = k; ls.set('track', k); window.scrollTo(0, 0); render(); };
 
 function viewTrack() {
