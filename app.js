@@ -260,7 +260,7 @@ const S = {
   settings: { babies: [], units: loadUnits() },
   entries: new Map(), growth: new Map(), timers: new Map(),
   loadedFrom: Infinity, loading: null, rangeRetryAt: 0, unsub: [], babySync: [], pending: {},
-  tab: 'today', dayOffset: 0, range: 7, metric: 'wt',
+  tab: 'track', track: ls.get('track', 'nurse'), range: 7, metric: 'wt',
   babyId: ls.get('baby'),
 };
 function defaultUnits() {
@@ -392,7 +392,7 @@ function selectBaby(id) {
   if (S.activeBaby === id && id) return;
   S.babySync.forEach((off) => off()); S.babySync = [];
   S.entries.clear(); S.growth.clear(); S.timers.clear(); S.pending = {};
-  S.gen += 1; S.activeBaby = id; S.babyId = id; S.dayOffset = 0;
+  S.gen += 1; S.activeBaby = id; S.babyId = id;
   S.key = id ? S.babies.get(id).key : null;
   if (!id) return;
   ls.set('baby', id);
@@ -648,7 +648,7 @@ function enterApp() {
 function render() {
   if (!S.priv || $('#app').hidden) return;
   renderTop(); renderTabs();
-  const views = { today: viewToday, summary: viewSummary, growth: viewGrowth };
+  const views = { track: viewTrack, summary: viewSummary, growth: viewGrowth };
   $('#main').replaceChildren(S.key && baby()?.name ? views[S.tab]()
     : S.babiesLoaded && !S.settings.babies.length ? welcome() : h('p', { class: 'empty' }, 'Loading…'));
   tick();
@@ -672,7 +672,7 @@ function updateSync() {
   el.classList.toggle('offline', offline);
 }
 function renderTabs() {
-  const tabs = [['today', 'Today', 'today'], ['summary', 'Summary', 'summary'], ['growth', 'Growth', 'growth']];
+  const tabs = [['track', 'Track', 'today'], ['summary', 'Summary', 'summary'], ['growth', 'Growth', 'growth']];
   $('#tabs').replaceChildren(...tabs.map(([k, label, ic]) => h('button', {
     class: 'tab' + (S.tab === k ? ' on' : ''), 'aria-current': S.tab === k ? 'page' : null,
     onclick: () => { S.tab = k; window.scrollTo(0, 0); render(); },
@@ -691,42 +691,110 @@ function tick() {
   }
 }
 
-// ---------- Today ----------
+// ---------- Track ----------
+//
+// One tracker per activity, like Nara: a tab each for nursing, bottle, solids and sleep, each with
+// its own controls and its own day-by-day history.
 
-function viewToday() {
-  const nt = timerFor('nurse'), st = timerFor('sleep');
+const KINDS = ['nurse', 'bottle', 'solids', 'sleep'];
+const trackKind = () => (KINDS.includes(S.track) ? S.track : 'nurse');
+const goTrack = (k) => { S.track = k; ls.set('track', k); window.scrollTo(0, 0); render(); };
+
+function viewTrack() {
+  const kind = trackKind(), nt = timerFor('nurse'), st = timerFor('sleep');
   return h('div', {},
-    nt ? nurseTimerCard(nt) : null,
-    st ? sleepTimerCard(st) : null,
-    h('div', { class: 'tiles' }, tile('nurse'), tile('bottle'), tile('solids'), tile('sleep')),
-    dayCard());
+    h('div', { class: 'kinds', role: 'tablist' }, KINDS.map(kindTab)),
+    nt && kind !== 'nurse' ? banner('nurse', nt.segs[0].a) : null,
+    st && kind !== 'sleep' ? banner('sleep', st.start) : null,
+    ({ nurse: nurseTracker, bottle: bottleTracker, solids: solidsTracker, sleep: sleepTracker })[kind](),
+    historyCard(kind));
 }
-function tile(type) {
-  const last = lastOf(type), timer = timerFor(type);
-  const sub = [];
-  if (timer && type === 'nurse') sub.push(h('span', { class: 'hl pulse' }, 'Nursing now'));
-  else if (timer && type === 'sleep') sub.push(h('span', { class: 'hl pulse' }, live(timer.start, 'dur', 0, 'Asleep ')));
-  else if (!last) sub.push(h('span', {}, 'Nothing yet'));
-  else if (type === 'sleep') {
-    sub.push(h('span', {}, live(last.end, 'dur', 0, 'Awake ')));
-    sub.push(h('span', {}, `Last nap ${fmtDur(last.end - last.start)}`));
-  } else {
-    sub.push(live(last.start));
-    if (type === 'nurse') sub.push(h('span', { class: 'hl' }, `Next: ${last.last === 'L' ? 'Right' : 'Left'}`));
-    if (type === 'bottle') sub.push(h('span', {}, `${fmtVol(last.amt)} ${MILK[last.milk] || ''}`));
-    if (type === 'solids') sub.push(h('span', {}, last.food || ''));
+function kindTab(k) {
+  const on = trackKind() === k, timer = timerFor(k), last = lastOf(k);
+  const sub = timer ? h('small', { class: 'pulse' }, k === 'sleep' ? 'asleep' : 'now')
+    : last ? h('small', {}, live(k === 'sleep' ? last.end : last.start)) : h('small', {}, '–');
+  return h('button', { class: `kind c-${k}${on ? ' on' : ''}`, role: 'tab', 'aria-selected': String(on), onclick: () => goTrack(k) },
+    h('span', { class: 'kind-icon' }, icon(k, 20)), h('b', {}, CAT[k]), sub);
+}
+// A timer running on another tab stays visible.
+function banner(k, since) {
+  return h('button', { class: `banner c-${k}`, onclick: () => goTrack(k) },
+    icon(k, 18), h('span', {}, k === 'sleep' ? 'Sleeping' : 'Nursing'), live(since, 'clock'), h('span', { class: 'banner-go' }, 'Open'));
+}
+
+function nurseTracker() {
+  const t = timerFor('nurse');
+  if (t) return nurseTimerCard(t);
+  const last = lastOf('nurse'), suggest = last ? (last.last === 'L' ? 'R' : 'L') : null;
+  return h('section', { class: 'card timer c-nurse' },
+    h('div', { class: 'timer-head' }, icon('nurse'), h('b', {}, 'Start a feed'),
+      last ? h('span', { class: 'mute small' }, 'Last ', live(last.end || last.start)) : null),
+    h('div', { class: 'start-sides' }, ['L', 'R'].map((k) => h('button', {
+      type: 'button', class: 'big-start' + (suggest === k ? ' suggest' : ''), onclick: () => startNurse(k),
+    }, h('b', {}, k === 'L' ? 'Left' : 'Right'), h('small', {}, suggest === k ? 'Suggested next' : 'Start timer')))),
+    h('button', { class: 'tracker-link', onclick: () => nurseSheet(null) }, '+ Log a past feed'));
+}
+function sleepTracker() {
+  const t = timerFor('sleep');
+  if (t) return sleepTimerCard(t);
+  const last = lastOf('sleep');
+  return h('section', { class: 'card timer c-sleep' },
+    h('div', { class: 'timer-head' }, icon('sleep'), h('b', {}, last ? live(last.end, 'dur', 0, 'Awake ') : 'Sleep'),
+      last ? h('span', { class: 'mute small' }, `Last sleep ${fmtDur(last.end - last.start)}`) : null),
+    h('button', { type: 'button', class: 'big-start wide', onclick: startSleep }, icon('sleep'), h('b', {}, 'Start sleep')),
+    h('button', { class: 'tracker-link', onclick: () => sleepSheet(null) }, '+ Log a past sleep'));
+}
+function bottleTracker() {
+  const last = lastOf('bottle');
+  return h('section', { class: 'card timer c-bottle' },
+    h('div', { class: 'timer-head' }, icon('bottle'), h('b', {}, 'Bottle'),
+      last ? h('span', { class: 'mute small' }, `${fmtVol(last.amt)} · `, live(last.start)) : null),
+    h('button', { class: 'btn primary block', onclick: () => bottleSheet() }, icon('plus', 20), 'Log a bottle'));
+}
+function solidsTracker() {
+  const last = lastOf('solids');
+  return h('section', { class: 'card timer c-solids' },
+    h('div', { class: 'timer-head' }, icon('solids'), h('b', {}, 'Solids'),
+      last ? h('span', { class: 'mute small' }, `${last.food} · `, live(last.start)) : null),
+    h('button', { class: 'btn primary block', onclick: () => solidsSheet() }, icon('plus', 20), 'Log solids'));
+}
+
+// History for one activity, grouped by day, newest first. Older days load on demand.
+function historyCard(kind) {
+  const groups = new Map([[dayStart(0), []]]);
+  for (const e of forBaby(S.entries).filter((x) => x.type === kind).sort((a, b) => b.start - a.start)) {
+    const d = dayStart(0, e.start);
+    if (!groups.has(d)) groups.set(d, []);
+    groups.get(d).push(e);
   }
-  const open = () => {
-    if (timer) return document.getElementById(`timer-${type}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    ({ nurse: nurseSheet, bottle: bottleSheet, solids: solidsSheet, sleep: sleepSheet })[type]();
-  };
-  return h('button', { class: `tile c-${type}`, onclick: open },
-    h('span', { class: 'tile-icon' }, icon(type)),
-    h('span', { class: 'tile-label' }, CAT[type]),
-    h('span', { class: 'tile-sub' }, sub));
+  const days = [...groups.keys()].sort((a, b) => b - a);
+  return h('section', { class: 'card' },
+    days.map((d) => dayGroup(kind, d, groups.get(d))),
+    h('button', { class: 'btn ghost block', disabled: Boolean(S.loading), onclick: () => ensureRange(S.loadedFrom - 7) },
+      S.loading ? 'Loading…' : 'Show older days'));
+}
+function dayGroup(kind, d, items) {
+  const label = d === dayStart(0) ? 'Today' : d === dayStart(-1) ? 'Yesterday' : fmtDate(d);
+  return h('div', { class: 'day-group' },
+    h('div', { class: 'day-head' }, h('b', {}, label), h('span', { class: 'mute small' }, daySummary(kind, d, items))),
+    items.length ? h('ul', { class: 'timeline' }, items.map(row))
+      : h('p', { class: 'empty' }, { nurse: 'No feeds yet.', bottle: 'No bottles yet.', solids: 'No solids yet.', sleep: 'No sleep logged yet.' }[kind]));
+}
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+function daySummary(kind, d, items) {
+  const sum = (k) => items.reduce((acc, e) => acc + (e[k] || 0), 0);
+  if (kind === 'sleep') {
+    const total = dayStats(d, dayStart(1, d), withLive()).sleep;
+    return total ? `${fmtDur(total)} total · ${plural(items.length, 'sleep')}` : '';
+  }
+  if (!items.length) return '';
+  if (kind === 'nurse') return `${plural(items.length, 'feed')} · ${fmtDur(sum('l') + sum('r'))} (L ${fmtDur(sum('l'))}, R ${fmtDur(sum('r'))})`;
+  if (kind === 'bottle') return `${plural(items.length, 'bottle')} · ${fmtVol(sum('amt'))}`;
+  return plural(items.length, 'time');
 }
 
 function nurseTimerCard(t) {
+
   const last = t.segs.at(-1), running = last && last.b == null ? last.s : null;
   const closed = { L: 0, R: 0 };
   for (const seg of t.segs) if (seg.b != null) closed[seg.s] += seg.b - seg.a;
@@ -797,23 +865,6 @@ function withLive() {
   if (st) list.push({ type: 'sleep', start: st.start, end: Date.now(), live: true });
   return list;
 }
-function dayCard() {
-  const start = dayStart(S.dayOffset), end = dayStart(S.dayOffset + 1);
-  if (dayNum(start) - 1 < S.loadedFrom) ensureRange(dayNum(start) - 1);
-  const all = withLive(), st = dayStats(start, end, all);
-  const list = all.filter((e) => !e.live && e.start >= start && e.start < end).sort((a, b) => b.start - a.start);
-  const label = S.dayOffset === 0 ? 'Today' : S.dayOffset === -1 ? 'Yesterday' : fmtDate(start);
-  const stat = (v, l) => h('div', { class: 'stat' }, h('b', {}, v), h('small', {}, l));
-  const shift = (n) => { S.dayOffset += n; render(); };
-  return h('section', { class: 'card' },
-    h('div', { class: 'day-nav' },
-      h('button', { class: 'icon-btn', 'aria-label': 'Previous day', onclick: () => shift(-1) }, icon('left')),
-      h('b', {}, label),
-      h('button', { class: 'icon-btn', 'aria-label': 'Next day', disabled: S.dayOffset >= 0, onclick: () => shift(1) }, icon('right'))),
-    h('div', { class: 'stats' }, stat(st.feeds, 'Feeds'), stat(fmtDur(st.nurse), 'Nursing'), stat(fmtVol(st.bottle), 'Bottle'), stat(fmtDur(st.sleep), 'Sleep')),
-    list.length ? h('ul', { class: 'timeline' }, list.map(row))
-      : h('p', { class: 'empty' }, S.loading ? 'Loading…' : S.dayOffset === 0 ? 'Nothing logged yet today.' : 'Nothing logged this day.'));
-}
 function describe(e) {
   if (e.type === 'nurse') return [e.l ? `L ${fmtDur(e.l)}` : '', e.r ? `R ${fmtDur(e.r)}` : ''].filter(Boolean).join(' · ') || '0m';
   if (e.type === 'bottle') return `${fmtVol(e.amt)} ${MILK[e.milk] || ''}`.trim();
@@ -826,7 +877,7 @@ function row(e) {
   return h('li', {}, h('button', { class: `row c-${e.type}`, onclick: () => entrySheet(e) },
     h('span', { class: 'row-time' }, fmtTime(e.start)),
     h('span', { class: 'dot' }, icon(e.type, 18)),
-    h('span', { class: 'row-body' }, h('b', {}, CAT[e.type]), h('span', {}, describe(e)), meta ? h('small', {}, meta) : null)));
+    h('span', { class: 'row-body' }, h('b', {}, describe(e)), meta ? h('small', {}, meta) : null)));
 }
 
 // ---------- Summary ----------
@@ -1046,16 +1097,25 @@ function openSheet(title, body, { actions = [], locked = false } = {}) {
   return (msg) => { err.textContent = msg; };
 }
 const closeSheet = () => sheet.close();
+// Only a single text box goes inside a <label>. Safari forwards any tap inside a label to the
+// first button in it, which would make the second option of a Girl/Boy switch unselectable.
 function field(label, input, hint) {
-  return h('label', { class: 'field' }, h('span', {}, label), input, hint ? h('small', {}, hint) : null);
+  const single = input.tagName === 'INPUT' || input.classList.contains('with-unit');
+  return h(single ? 'label' : 'div', { class: 'field' }, h('span', {}, label), input, hint ? h('small', {}, hint) : null);
 }
+// A switch like Girl/Boy. Buttons are updated in place, never rebuilt mid-tap, so the browser
+// can't send the tap anywhere else.
 function seg(opts, value, onchange) {
   const el = h('div', { class: 'seg', role: 'group' });
-  const draw = () => el.replaceChildren(...opts.map(([v, label]) => h('button', {
-    type: 'button', class: v === el.value ? 'on' : '', 'aria-pressed': String(v === el.value),
-    onclick: () => { el.value = v; draw(); onchange?.(v); },
-  }, label)));
-  el.value = value; draw();
+  const set = (v) => {
+    el.value = v;
+    buttons.forEach((b, i) => { const on = opts[i][0] === v; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+  };
+  const buttons = opts.map(([v, label]) => h('button', {
+    type: 'button', onclick: (ev) => { ev.preventDefault(); ev.stopPropagation(); set(v); onchange?.(v); },
+  }, label));
+  el.append(...buttons);
+  set(value);
   return el;
 }
 const timeInput = (t) => h('input', { type: 'datetime-local', value: toLocalInput(t) });
@@ -1079,7 +1139,6 @@ function entrySheet(e) {
 }
 
 function nurseSheet(e) {
-  const last = lastOf('nurse'), suggest = last ? (last.last === 'L' ? 'R' : 'L') : null;
   const start = timeInput(e?.start ?? Date.now() - 20 * 60000);
   const lm = numInput(e ? Math.round(e.l / 60000) : '', 1, 'min'), rm = numInput(e ? Math.round(e.r / 60000) : '', 1, 'min');
   const ended = seg([['L', 'Left'], ['R', 'Right']], e?.last || 'L');
@@ -1093,20 +1152,36 @@ function nurseSheet(e) {
     closeSheet();
   };
   const body = h('div', { class: 'stack' },
-    e ? null : h('div', { class: 'start-sides c-nurse' }, ['L', 'R'].map((k) => h('button', {
-      type: 'button', class: 'big-start' + (suggest === k ? ' suggest' : ''), onclick: () => { startNurse(k); closeSheet(); },
-    }, h('b', {}, k === 'L' ? 'Left' : 'Right'), h('small', {}, suggest === k ? 'Suggested · start timer' : 'Start timer')))),
-    e ? null : h('p', { class: 'divider' }, 'or log a past feed'),
     field('Started', start), h('div', { class: 'row2' }, field('Left', lm), field('Right', rm)),
     field('Finished on', ended), field('Note', note));
-  error = openSheet(e ? 'Edit nursing' : 'Nursing', body, { actions: [e && deleteButton(e), saveButton(save)] });
+  error = openSheet(e ? 'Edit nursing' : 'Log a past feed', body, { actions: [e && deleteButton(e), saveButton(save)] });
 }
 
+// Quick-pick amounts: the five most recent different amounts for this baby, newest first (a new
+// amount pushes out the oldest), topped up with common sizes while there's little history.
+function recentAmounts(oz, show) {
+  const out = [];
+  const bottles = forBaby(S.entries).filter((x) => x.type === 'bottle').sort((a, b) => b.start - a.start);
+  for (const b of bottles) {
+    const v = show(b.amt);
+    if (+v > 0 && !out.includes(v)) out.push(v);
+    if (out.length === 5) return out;
+  }
+  for (const d of oz ? ['2', '3', '4', '5', '6'] : ['60', '90', '120', '150', '180']) if (out.length < 5 && !out.includes(d)) out.push(d);
+  return out;
+}
 function bottleSheet(e) {
-  const oz = units().vol === 'oz', last = lastOf('bottle');
-  const amount = numInput(e ? (oz ? trim(e.amt / OZ) : Math.round(e.amt)) : '', oz ? 0.5 : 5, oz ? 'oz' : 'ml');
-  const presets = oz ? [2, 3, 4, 5, 6] : [60, 90, 120, 150, 180];
-  const chips = h('div', { class: 'chips' }, presets.map((p) => h('button', { type: 'button', class: 'chip', onclick: () => { amount.querySelector('input').value = p; } }, `${p} ${oz ? 'oz' : 'ml'}`)));
+  const oz = units().vol === 'oz', last = lastOf('bottle'), unit = oz ? 'oz' : 'ml';
+  const show = (ml) => (oz ? trim(ml / OZ) : String(Math.round(ml)));
+  const amount = numInput(e ? show(e.amt) : last ? show(last.amt) : '', oz ? 0.5 : 5, unit);
+  const input = amount.querySelector('input');
+  const presets = recentAmounts(oz, show);
+  const mark = () => chips.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c.dataset.v === String(+input.value)));
+  const chips = h('div', { class: 'chips' }, presets.map((p) => h('button', {
+    type: 'button', class: 'chip', 'data-v': p, onclick: () => { input.value = p; mark(); },
+  }, `${p} ${unit}`)));
+  input.addEventListener('input', mark);
+  mark();
   const milk = seg([['breast', 'Breast milk'], ['formula', 'Formula']], e?.milk || last?.milk || 'breast');
   const time = timeInput(e?.start ?? Date.now()), note = noteInput(e?.note);
   let error;
@@ -1148,9 +1223,7 @@ function sleepSheet(e) {
     saveEntry({ ...e, type: 'sleep', baby: e?.baby ?? baby().id, start: a, end: b, note: note.value.trim() });
     closeSheet();
   };
-  error = openSheet(e ? 'Edit sleep' : 'Sleep', h('div', { class: 'stack' },
-    e ? null : h('div', { class: 'start-sides c-sleep' }, h('button', { type: 'button', class: 'big-start wide', onclick: () => { startSleep(); closeSheet(); } }, icon('sleep'), h('b', {}, 'Start sleep timer'))),
-    e ? null : h('p', { class: 'divider' }, 'or log a past sleep'),
+  error = openSheet(e ? 'Edit sleep' : 'Log a past sleep', h('div', { class: 'stack' },
     field('Fell asleep', start), field('Woke up', end), field('Note', note)),
   { actions: [e && deleteButton(e), saveButton(save)] });
 }

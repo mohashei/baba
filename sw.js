@@ -1,6 +1,6 @@
 // Offline support: app files are network-first (so updates show up on the next open) with a
 // cached fallback; the version-pinned Firebase SDK is cache-first. Data requests pass through.
-const CACHE = 'cradle-v3';
+const CACHE = 'cradle-v4';
 const SDK = 'https://www.gstatic.com/firebasejs/13.0.0/';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'who.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 
