@@ -1120,7 +1120,40 @@ function seg(opts, value, onchange) {
   set(value);
   return el;
 }
-const timeInput = (t) => h('input', { type: 'datetime-local', value: toLocalInput(t) });
+// Day + time picker for entries: a short rolling day list around today (iPhone shows it as a
+// wheel, like the time) plus "Other date…", which opens the compact date picker in the same spot,
+// so any date works without a calendar taking up the sheet.
+// .value reads and writes 'YYYY-MM-DDTHH:MM', the same as a datetime-local input.
+const OTHER = 'other';
+const dayLabel = (o, d) => (o === 0 ? 'Today' : o === -1 ? 'Yesterday' : o === 1 ? 'Tomorrow' : fmtDate(d));
+function timeInput(t) {
+  const day = h('select', { 'aria-label': 'Day' }, h('option', { value: OTHER }, 'Other date…'));
+  const addDay = (d) => {
+    const v = toDateInput(d);
+    if ([...day.options].some((o) => o.value === v)) return;
+    const after = [...day.options].find((o) => o.value === OTHER || o.value > v);
+    day.insertBefore(h('option', { value: v }, dayLabel(Math.round((d - dayStart(0)) / DAY), d)), after);
+  };
+  for (let o = -2; o <= 2; o += 1) addDay(dayStart(o));
+  const date = h('input', { type: 'date', 'aria-label': 'Date', hidden: true });
+  const time = h('input', { type: 'time', 'aria-label': 'Time' });
+  let current = '';
+  const showList = () => { date.hidden = true; day.hidden = false; day.value = current; };
+  day.addEventListener('change', () => {
+    if (day.value !== OTHER) { current = day.value; return; }
+    date.value = current; day.hidden = true; date.hidden = false; date.focus();
+    try { date.showPicker(); } catch {}
+  });
+  date.addEventListener('change', () => { if (date.value) { addDay(parseDate(date.value)); current = date.value; } showList(); });
+  date.addEventListener('blur', () => setTimeout(() => { if (!date.hidden) showList(); }, 200));
+  const el = h('div', { class: 'when' }, day, date, time);
+  Object.defineProperty(el, 'value', {
+    get: () => (current && time.value ? `${current}T${time.value}` : ''),
+    set: (v) => { const [d, tm] = v.split('T'); addDay(parseDate(d)); current = d; day.value = d; time.value = tm; },
+  });
+  el.value = toLocalInput(t);
+  return el;
+}
 const noteInput = (v) => h('input', { type: 'text', maxlength: 300, value: v || '', placeholder: 'Optional' });
 const numInput = (v, step = 'any', unit = '') => {
   const input = h('input', { type: 'number', inputmode: 'decimal', min: 0, step, value: v ?? '' });
