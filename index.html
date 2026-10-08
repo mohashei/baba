@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; connect-src 'self' https://*.googleapis.com https://www.gstatic.com; style-src 'self'; img-src 'self' data: blob: https://www.google.com; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Cradle</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cradle">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#fbf7f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141217" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="styles.css">
+<!--
+  Cradle: a private baby tracker (feeding, sleep, growth, summaries) shared between caregivers.
+  Static files only; data syncs through your own Firebase project and is end-to-end encrypted
+  with the household password. Setup and security notes are in README.md.
+-->
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<div id="boot" class="boot"><div class="spinner"></div></div>
+<div id="lock" class="lock" hidden></div>
+<div id="app" hidden>
+  <header class="top" id="top"></header>
+  <main id="main"></main>
+  <nav class="tabs" id="tabs" aria-label="Sections"></nav>
+</div>
+<dialog id="sheet" class="sheet"></dialog>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

@@ -1,0 +1,108 @@
+rules_version = '2';
+
+// Paste this file into Firestore -> Rules -> Publish.
+//
+// INVITE CODE: new people need it to create an account. Only its SHA-256 fingerprint is stored
+// here, so this file can be public. To change the code, pick a new one, run
+//   printf %s 'your-new-code' | shasum -a 256
+// and replace the 64-character value below.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function inviteOk(code) {
+      return code is string && hashing.sha256(code).toHexString().lower()
+        == '3f79816db2c779fc6e7820087ea9254b7a431b2de1eab11710c07e704f97d417';
+    }
+    function signedIn() { return request.auth != null; }
+    function isMe(uid) { return signedIn() && request.auth.uid == uid; }
+    function babyDoc(babyId) { return /databases/$(database)/documents/babies/$(babyId); }
+    function isMember(babyId) {
+      return signedIn() && exists(/databases/$(database)/documents/babies/$(babyId)/members/$(request.auth.uid));
+    }
+    function isOwner(babyId) { return signedIn() && get(babyDoc(babyId)).data.owner == request.auth.uid; }
+    function sealed(maxLen) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['d', 'v', 'iv', 'ct'])
+        && d.d is number && d.v is number
+        && d.iv is string && d.iv.size() <= 24
+        && d.ct is string && d.ct.size() <= maxLen;
+    }
+    function boxOk(b) {
+      return b is map && b.keys().hasOnly(['epk', 'iv', 'ct']) && b.epk is string && b.iv is string && b.ct is string;
+    }
+
+    // Usernames: claimed once by the matching login, fetchable by exact name, never listable.
+    match /usernames/{name} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.auth.token.email == name + '@example.com'
+        && request.resource.data.keys().hasOnly(['uid', 'pub'])
+        && request.resource.data.uid == request.auth.uid
+        && existsAfter(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    // A person's own record (wrapped private key). Creating it requires the invite code.
+    match /users/{uid} {
+      allow read: if isMe(uid);
+      allow create: if isMe(uid)
+        && request.resource.data.keys().hasOnly(['v', 'pub', 'priv', 'invite'])
+        && inviteOk(request.resource.data.invite);
+      allow update: if isMe(uid)
+        && request.resource.data.keys().hasOnly(['v', 'pub', 'priv', 'prevPriv', 'invite'])
+        && request.resource.data.pub == resource.data.pub
+        && request.resource.data.invite == resource.data.invite;
+
+      // The babies this person is linked to. Members of a baby can link others to it.
+      match /babies/{babyId} {
+        allow read: if isMe(uid);
+        allow create, update: if request.resource.data.keys().hasOnly(['v'])
+          && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && (isMe(uid) || (isMember(babyId)
+            && existsAfter(/databases/$(database)/documents/babies/$(babyId)/members/$(uid))));
+        allow delete: if isMe(uid) || isOwner(babyId);
+      }
+    }
+
+    match /babies/{babyId} {
+      allow read: if isMember(babyId);
+      allow create: if signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && request.resource.data.keys().hasOnly(['v', 'owner', 'profile'])
+        && request.resource.data.owner == request.auth.uid
+        && existsAfter(/databases/$(database)/documents/babies/$(babyId)/members/$(request.auth.uid));
+      allow update: if isMember(babyId)
+        && request.resource.data.keys().hasOnly(['v', 'owner', 'profile'])
+        && request.resource.data.owner == resource.data.owner
+        && request.resource.data.profile.ct.size() <= 20000;
+
+      // Each member's copy of the baby's key, sealed to that member's public key.
+      match /members/{memberUid} {
+        allow read: if isMember(babyId);
+        allow create: if signedIn()
+          && request.resource.data.keys().hasOnly(['uid', 'u', 'by', 'key'])
+          && request.resource.data.uid == memberUid
+          && boxOk(request.resource.data.key)
+          && get(/databases/$(database)/documents/usernames/$(request.resource.data.u)).data.uid == memberUid
+          && (isMember(babyId)
+            || (memberUid == request.auth.uid && !exists(babyDoc(babyId))
+              && getAfter(babyDoc(babyId)).data.owner == request.auth.uid));
+        allow delete: if isMe(memberUid) || isOwner(babyId);
+      }
+      match /entries/{id} {
+        allow read, delete: if isMember(babyId);
+        allow create, update: if isMember(babyId) && sealed(8000);
+      }
+      match /growth/{id} {
+        allow read, delete: if isMember(babyId);
+        allow create, update: if isMember(babyId) && sealed(8000);
+      }
+      match /timers/{id} {
+        allow read, delete: if isMember(babyId);
+        allow create, update: if isMember(babyId) && sealed(20000);
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
