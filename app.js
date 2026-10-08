@@ -1120,7 +1120,7 @@ function seg(opts, value, onchange) {
   set(value);
   return el;
 }
-// Day + time picker for entries: a short rolling day list around today (iPhone shows it as a
+// Day + time picker for entries: a short rolling day list ending today (iPhone shows it as a
 // wheel, like the time) plus "Other date…", which opens the compact date picker in the same spot,
 // so any date works without a calendar taking up the sheet.
 // .value reads and writes 'YYYY-MM-DDTHH:MM', the same as a datetime-local input.
@@ -1134,7 +1134,7 @@ function timeInput(t) {
     const after = [...day.options].find((o) => o.value === OTHER || o.value > v);
     day.insertBefore(h('option', { value: v }, dayLabel(Math.round((d - dayStart(0)) / DAY), d)), after);
   };
-  for (let o = -2; o <= 2; o += 1) addDay(dayStart(o));
+  for (let o = -2; o <= 0; o += 1) addDay(dayStart(o));
   const date = h('input', { type: 'date', 'aria-label': 'Date', hidden: true });
   const time = h('input', { type: 'time', 'aria-label': 'Time' });
   let current = '';
