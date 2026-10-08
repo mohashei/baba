@@ -146,9 +146,9 @@ svg { flex: none; }
 
 /* Rows */
 .timeline { list-style: none; margin: 0; padding: 0; }
-.row { width: 100%; display: grid; grid-template-columns: 62px 34px 1fr; gap: 8px; align-items: start; text-align: left; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.row { width: 100%; display: grid; grid-template-columns: 74px 34px 1fr; gap: 8px; align-items: start; text-align: left; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .timeline li:last-child .row { border-bottom: 0; padding-bottom: 0; }
-.row-time { font-size: 14px; color: var(--mute); padding-top: 6px; font-variant-numeric: tabular-nums; }
+.row-time { font-size: 14px; white-space: nowrap; color: var(--mute); padding-top: 6px; font-variant-numeric: tabular-nums; }
 .dot { width: 32px; height: 32px; border-radius: 11px; display: grid; place-items: center; background: var(--cs); color: var(--c); }
 .row-body { display: flex; flex-direction: column; min-width: 0; }
 .row-body b { font-size: 15px; }
