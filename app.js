@@ -768,8 +768,10 @@ function historyCard(kind) {
     groups.get(d).push(e);
   }
   const days = [...groups.keys()].sort((a, b) => b - a);
+  const any = days.some((d) => groups.get(d).length);
   return h('section', { class: 'card' },
     days.map((d) => dayGroup(kind, d, groups.get(d))),
+    any ? h('p', { class: 'hint' }, 'Tap an entry to change or delete it.') : null,
     h('button', { class: 'btn ghost block', disabled: Boolean(S.loading), onclick: () => ensureRange(S.loadedFrom - 7) },
       S.loading ? 'Loading…' : 'Show older days'));
 }
@@ -1020,7 +1022,7 @@ function viewGrowth() {
       growthChart(S.metric, list, b)),
     h('button', { class: 'btn primary block add', onclick: () => growthSheet() }, icon('plus', 20), 'Add measurement'),
     list.length ? h('section', { class: 'card' },
-      h('div', { class: 'card-title' }, h('h2', {}, 'History')),
+      h('div', { class: 'card-title' }, h('h2', {}, 'History'), h('small', { class: 'mute' }, 'Tap to edit')),
       h('ul', { class: 'list' }, list.map((e) => h('li', {}, h('button', { class: 'list-row', onclick: () => growthSheet(e) },
         h('span', {}, h('b', {}, fmtDate(e.start, { month: 'short', day: 'numeric', year: 'numeric' })),
           h('small', {}, [e.wt != null && fmtWt(e.wt), e.len != null && fmtLen(e.len), e.hc != null && `head ${fmtLen(e.hc)}`].filter(Boolean).join(' · '))),
@@ -1327,6 +1329,7 @@ function babySwitcher() {
         h('span', {}, h('b', {}, b.name || '…'), b.birth ? h('small', {}, ageText(b.birth)) : null),
         b.id === baby()?.id ? '✓' : icon('right', 18)))))
       : h('p', { class: 'mute' }, 'No babies yet.'),
+    baby() ? h('button', { type: 'button', class: 'btn secondary', onclick: () => babySheet(baby()) }, `Edit ${baby().name}'s details`) : null,
     h('button', { type: 'button', class: 'btn secondary', onclick: () => babySheet() }, 'Add a baby'),
     h('p', { class: 'mute small' }, `To see a baby someone else added, ask them to share it with your username: ${S.me}.`)));
 }
